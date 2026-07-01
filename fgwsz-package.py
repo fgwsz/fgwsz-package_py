@@ -132,11 +132,31 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
         2. 对每个文件，生成随机密钥（1~255）。
         3. 按规范写入：密钥 → 混淆后的路径长度 → 混淆后的路径 → 混淆后的内容长度 → 混淆后的内容。
 
-    注意：打包成功后，输出文件会被设置为只读权限（所有用户只读），防止意外修改。
+    注意：
+        - 如果输出包文件已存在，会提示用户确认是否覆盖。
+        - 打包成功后，输出文件会被设置为只读权限。
 
     :param input_paths: 命令行输入的路径列表（文件和/或目录）
     :param output_package: 输出的包文件路径
     """
+
+    # ----- 检查输出文件是否已存在（覆盖警告） -----
+    if os.path.exists(output_package):
+        print(f"警告: 输出文件 '{output_package}' 已存在，将被覆盖。")
+        try:
+            response = input("是否继续? (y/N): ")
+        except KeyboardInterrupt:
+            print("\n操作已取消。")
+            return
+        if response.lower() != 'y':
+            print("操作已取消。")
+            return
+        # 用户确认覆盖，移除只读属性（如果有）
+        try:
+            pathlib.Path(output_package).chmod(0o644)  # 赋予读写权限
+        except Exception:
+            pass  # 如果无法修改权限，继续尝试（可能仍会失败，但不影响后续尝试）
+
     items_to_pack = []  # 存放 (relative_path_str, absolute_file_path)
 
     # ----- 遍历输入路径，收集所有待打包文件 -----
