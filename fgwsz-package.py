@@ -237,7 +237,11 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
 
     # ----- 开始写入包文件 -----
     with open(output_package, 'wb') as f_out:
-        for rel_path, file_path in items_to_pack:
+        total = len(items_to_pack)
+        for idx, (rel_path, file_path) in enumerate(items_to_pack, 1):
+            # 显示进度以及当前正在处理文件路径信息
+            print(f"\r[{idx}/{total}] 正在打包: {rel_path}", end='', flush=True)
+
             # 1. 生成随机密钥（1~255，避免 0 导致无混淆）
             key = random.randint(1, 255)
 
@@ -276,6 +280,10 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
                     enc_chunk = chunk.translate(table)
                     f_out.write(enc_chunk)
 
+    # 换行
+    print()
+
+    # ----- 计时和完成信息 -----
     elapsed = time.perf_counter() - start_time
     print(f"打包完成，输出文件: {output_package}")
     print(f"共打包 {len(items_to_pack)} 个文件。")
@@ -340,6 +348,9 @@ def unpack_package(input_package: str, output_dir: str) -> None:
             path_bytes = xor_bytes(path_enc, key)
             rel_path = path_bytes.decode('utf-8')
 
+            # 显示当前正在进行解包的文件路径信息
+            print(f'\r正在解包: {rel_path}', end='', flush=True)
+
             # ----- 4. 读取并解密内容长度 -----
             len_be = f_in.read(LENGTH_SIZE)
             if len(len_be) < LENGTH_SIZE:
@@ -369,6 +380,10 @@ def unpack_package(input_package: str, output_dir: str) -> None:
 
             file_count += 1
 
+    # 换行
+    print()
+
+    # ----- 计时和完成信息 -----
     elapsed = time.perf_counter() - start_time
     print(f"解包完成，输出目录: {output_dir}")
     print(f"共解包 {file_count} 个文件。")
