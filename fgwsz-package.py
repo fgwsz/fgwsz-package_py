@@ -69,6 +69,7 @@ import argparse
 import struct
 import pathlib
 import random
+import time
 from typing import List
 
 # -------------------------- 常量 --------------------------
@@ -157,6 +158,9 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
         except Exception:
             pass  # 如果无法修改权限，继续尝试（可能仍会失败，但不影响后续尝试）
 
+    # 开始计时
+    start_time = time.perf_counter()
+
     items_to_pack = []  # 存放 (relative_path_str, absolute_file_path)
 
     # ----- 遍历输入路径，收集所有待打包文件 -----
@@ -236,8 +240,10 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
                     enc_chunk = chunk.translate(table)
                     f_out.write(enc_chunk)
 
+    elapsed = time.perf_counter() - start_time
     print(f"打包完成，输出文件: {output_package}")
     print(f"共打包 {len(items_to_pack)} 个文件。")
+    print(f"用时: {elapsed:.9f} 秒")
 
     # ----- 设置包文件为只读（防止意外修改） -----
     try:
@@ -263,6 +269,9 @@ def unpack_package(input_package: str, output_dir: str) -> None:
     if not os.path.isfile(input_package):
         print(f"错误: 包文件不存在: {input_package}")
         return
+
+    # 开始计时
+    start_time = time.perf_counter()
 
     out_root = pathlib.Path(output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -324,8 +333,10 @@ def unpack_package(input_package: str, output_dir: str) -> None:
 
             file_count += 1
 
+    elapsed = time.perf_counter() - start_time
     print(f"解包完成，输出目录: {output_dir}")
     print(f"共解包 {file_count} 个文件。")
+    print(f"用时: {elapsed:.9f} 秒")
 
 
 # -------------------------- 列表查看功能 --------------------------
@@ -341,6 +352,9 @@ def list_package(input_package: str) -> None:
     if not os.path.isfile(input_package):
         print(f"错误: 包文件不存在: {input_package}")
         return
+
+    # 开始计时
+    start_time = time.perf_counter()
 
     file_count = 0
     total_size = 0
@@ -377,7 +391,9 @@ def list_package(input_package: str) -> None:
             total_size += content_len
             print(f"{rel_path}  ({content_len} bytes)")
 
+    elapsed = time.perf_counter() - start_time
     print(f"\n总计: {file_count} 个文件, 总大小: {total_size} 字节")
+    print(f"用时: {elapsed:.9f} 秒")
 
 
 # -------------------------- 命令行入口 --------------------------
