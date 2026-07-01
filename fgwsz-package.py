@@ -118,6 +118,24 @@ def normalize_path_for_package(path: str) -> str:
     return str(pathlib.PurePath(path).as_posix())
 
 
+def format_size(size: int) -> str:
+    """
+    将字节大小转换为带单位的可读字符串（B/KB/MB/GB/TB）。
+    :param size: 字节数
+    :return: 格式化字符串，如 "1.23 MB"
+    """
+    if size < 1024:
+        return f"{size} B"
+    elif size < 1024 * 1024:
+        return f"{size / 1024:.2f} KB"
+    elif size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.2f} MB"
+    elif size < 1024 * 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024 * 1024):.2f} GB"
+    else:
+        return f"{size / (1024 * 1024 * 1024 * 1024):.2f} TB"
+
+
 # -------------------------- 打包功能 --------------------------
 
 def pack_files(input_paths: List[str], output_package: str) -> None:
@@ -137,6 +155,7 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
         - 如果输出包文件已存在，会提示用户确认是否覆盖。
         - 打包成功后，输出文件会被设置为只读权限。
         - 打包文件/目录，严格模式：重复输入或直接文件重名则报错。
+        - 输入目录路径包含输出包文件时，跳过输出包文件自身
 
     :param input_paths: 命令行输入的路径列表（文件和/或目录）
     :param output_package: 输出的包文件路径
@@ -202,6 +221,7 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
 
     # ----- 遍历输入路径，收集所有待打包文件 -----
     # 遍历目录
+    output_abs = pathlib.Path(output_package).resolve()
     for d in dirs:
         # 目录处理：打包目录自身（包含目录名）
         # 使用 os.walk 遍历，默认不跟随符号链接
@@ -212,6 +232,9 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
                 # 跳过符号链接文件
                 if file_path.is_symlink():
                     continue
+                # 遍历时跳过输出文件自身
+                if file_path.resolve() == output_abs:
+                    continue
                 # 相对路径以目录名开头
                 rel = file_path.relative_to(d.parent)
                 rel_str = normalize_path_for_package(str(rel))
@@ -219,6 +242,10 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
 
     # 直接文件
     for f in direct_files:
+        # 检测是否含有输出文件自身
+        if f.resolve() == output_abs:
+            print(f"错误: 不能打包输出文件自身: {f}")
+            sys.exit(1)
         # 直接输入的文件：仅使用文件名（不含目录路径）
         items_to_pack.append((f.name, f))
 
@@ -236,6 +263,7 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
     start_time = time.perf_counter()
 
     # ----- 开始写入包文件 -----
+    total_content_size = 0
     with open(output_package, 'wb') as f_out:
         total = len(items_to_pack)
         for idx, (rel_path, file_path) in enumerate(items_to_pack, 1):
@@ -280,13 +308,24 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
                     enc_chunk = chunk.translate(table)
                     f_out.write(enc_chunk)
 
+            # 更新内容总字节数
+            total_content_size += content_len
+
     # 换行
     print()
 
     # ----- 计时和完成信息 -----
     elapsed = time.perf_counter() - start_time
+    package_size = os.path.getsize(output_package)
+    if package_size > 0:
+        ratio = (total_content_size / package_size) * 100
+    else:
+        ratio = 0.0
     print(f"打包完成，输出文件: {output_package}")
     print(f"共打包 {len(items_to_pack)} 个文件。")
+    print(f"内容总大小: {format_size(total_content_size)} ({total_content_size} 字节)")
+    print(f"包文件大小: {format_size(package_size)} ({package_size} 字节)")
+    print(f"内容占比: {ratio:.1f}%")
     print(f"用时: {elapsed:.9f} 秒")
 
     # ----- 设置包文件为只读（防止意外修改） -----
@@ -321,6 +360,7 @@ def unpack_package(input_package: str, output_dir: str) -> None:
     start_time = time.perf_counter()
 
     file_count = 0
+    total_content_size = 0
     with open(input_package, 'rb') as f_in:
         while True:
             # ----- 1. 读取密钥 -----
@@ -379,14 +419,23 @@ def unpack_package(input_package: str, output_dir: str) -> None:
                     print(f"警告: 文件 {rel_path} 内容读取不完整（剩余 {remaining} 字节）")
 
             file_count += 1
+            total_content_size += content_len
 
     # 换行
     print()
 
     # ----- 计时和完成信息 -----
     elapsed = time.perf_counter() - start_time
+    package_size = os.path.getsize(input_package)
+    if package_size > 0:
+        ratio = (total_content_size / package_size) * 100
+    else:
+        ratio = 0.0
     print(f"解包完成，输出目录: {output_dir}")
     print(f"共解包 {file_count} 个文件。")
+    print(f"内容总大小: {format_size(total_content_size)} ({total_content_size} 字节)")
+    print(f"包文件大小: {format_size(package_size)} ({package_size} 字节)")
+    print(f"内容占比: {ratio:.1f}%")
     print(f"用时: {elapsed:.9f} 秒")
 
 
@@ -442,8 +491,17 @@ def list_package(input_package: str) -> None:
             total_size += content_len
             print(f"{rel_path}  ({content_len} bytes)")
 
+    # ----- 计时和完成信息 -----
     elapsed = time.perf_counter() - start_time
-    print(f"\n总计: {file_count} 个文件, 总大小: {total_size} 字节")
+    package_size = os.path.getsize(input_package)
+    if package_size > 0:
+        ratio = (total_size / package_size) * 100
+    else:
+        ratio = 0.0
+    print(f"\n总计: {file_count} 个文件")
+    print(f"内容总大小: {format_size(total_size)} ({total_size} 字节)")
+    print(f"包文件大小: {format_size(package_size)} ({package_size} 字节)")
+    print(f"内容占比: {ratio:.1f}%")
     print(f"用时: {elapsed:.9f} 秒")
 
 
