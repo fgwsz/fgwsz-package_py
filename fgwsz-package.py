@@ -221,7 +221,7 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
 
     # ----- 设置包文件为只读（防止意外修改） -----
     try:
-        Path(output_package).chmod(0o444)
+        pathlib.Path(output_package).chmod(0o444)
     except Exception as e:
         print(f"警告: 设置只读权限失败: {e}")
 
