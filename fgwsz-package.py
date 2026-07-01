@@ -229,6 +229,9 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
     # 按相对路径排序，使包内容有序（便于阅读和比对）
     items_to_pack.sort(key=lambda x: x[0])
 
+    # ----- 确保输出文件的父目录存在 -----
+    pathlib.Path(output_package).parent.mkdir(parents=True, exist_ok=True)
+
     # ----- 开始计时（所有检查通过后） -----
     start_time = time.perf_counter()
 
