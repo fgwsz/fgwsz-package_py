@@ -314,11 +314,11 @@ def unpack_package(input_package: str, output_dir: str) -> None:
         print(f"错误: 包文件不存在: {input_package}")
         return
 
-    # 开始计时
-    start_time = time.perf_counter()
-
     out_root = pathlib.Path(output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
+
+    # 开始计时
+    start_time = time.perf_counter()
 
     file_count = 0
     with open(input_package, 'rb') as f_in:
