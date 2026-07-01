@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-fgwsz-package - 打包/解包工具（XOR 混淆版）
+# fgwsz-package - 打包/解包工具（XOR 混淆版）
 =============================================
 
 功能概述
@@ -10,6 +10,12 @@ fgwsz-package - 打包/解包工具（XOR 混淆版）
 本工具用于将多个文件/目录归档为单一的 `.fgwsz` 包文件。
 每个文件条目在包内使用**单字节随机 XOR** 进行混淆，以防止轻易识别文件结构。
 工具支持打包、解包、列表查看三种操作模式。
+
+路径存储规则
+------------
+- **文件输入**：包内路径仅存储文件名（不含任何父目录），解包时文件直接放入输出根目录。
+- **目录输入**：包内路径存储为 `目录名/子文件路径`，解包时完整保留目录结构。
+- **符号链接**：打包时自动跳过所有符号链接，不打包链接本身，也不跟随链接目标。
 
 包格式（二进制结构）
 --------------------
@@ -22,21 +28,28 @@ fgwsz-package - 打包/解包工具（XOR 混淆版）
 
 特别注意
 --------
-- 所有长度字段均为 **8 字节无符号大端整数**（与 C++ 版本一致）。
+- 所有长度字段均为 **8 字节无符号大端整数**（网络字节序），与 C++ 版本一致。
 - 路径在包内统一使用正斜杠 `/`（跨平台兼容）。
 - 混淆仅提供 **轻微混淆**，不保证强加密（仅为防止直接读取）。
 - 打包目录时，始终包含目录自身（即相对路径以目录名开头）。
+- 目录路径末尾的 `/` 不会影响打包行为（会被自动规范化）。
 
 使用示例
 --------
-    # 打包文件或目录
-    python fgwsz-package.py -c 0.fgwsz README.md source
+    # 打包单个文件（解包时文件直接放入输出根目录）
+    python fgwsz-package.py -c out.fgwsz README.md
 
-    # 解包
-    python fgwsz-package.py -x 0.fgwsz out
+    # 打包目录（保留目录结构）
+    python fgwsz-package.py -c out.fgwsz source/
 
-    # 列表查看
-    python fgwsz-package.py -l 0.fgwsz
+    # 混合打包文件与目录
+    python fgwsz-package.py -c out.fgwsz README.md source/ doc/guide.txt
+
+    # 解包到 output 目录
+    python fgwsz-package.py -x out.fgwsz output
+
+    # 列表查看包内容
+    python fgwsz-package.py -l out.fgwsz
 
 兼容性
 ------
@@ -109,6 +122,10 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
     """
     将多个文件/目录打包到 .fgwsz 包中。
 
+    路径存储规则：
+        - 如果输入是文件：包内路径仅为文件名（不含目录路径），解包时文件直接放入输出根目录。
+        - 如果输入是目录：包内路径为 "目录名/子文件路径"，解包时保留目录结构。
+
     打包流程：
         1. 递归遍历所有输入路径，收集所有普通文件及其相对路径。
         2. 对每个文件，生成随机密钥（1~255）。
@@ -127,15 +144,26 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
             continue
 
         if p.is_file():
-            # 单个文件，相对路径即为文件名
+            # 如果是符号链接指向的文件，跳过
+            if p.is_symlink():
+                print(f"警告: 跳过符号链接文件: {raw_path}")
+                continue
+
+            # 直接输入的文件：仅使用文件名（不含目录路径）
             items_to_pack.append((p.name, p))
         else:
-            # 目录处理：统一打包目录自身（包含目录名）
-            for child in p.rglob('*'):
-                if child.is_file():
+            # 目录处理：打包目录自身（包含目录名）
+            # 使用 os.walk 遍历，默认不跟随符号链接
+            for root, dirs, files in os.walk(p):
+                root_path = pathlib.Path(root)
+                for file in files:
+                    file_path = root_path / file
+                    # 跳过符号链接文件
+                    if file_path.is_symlink():
+                        continue
                     # 相对路径以目录名开头
-                    rel = child.relative_to(p.parent)
-                    items_to_pack.append((normalize_path_for_package(str(rel)), child))
+                    rel = file_path.relative_to(p.parent)
+                    items_to_pack.append((normalize_path_for_package(str(rel)), file_path))
 
     if not items_to_pack:
         print("没有找到任何文件，打包终止。")
