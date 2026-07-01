@@ -33,6 +33,7 @@
 - 混淆仅提供 **轻微混淆**，不保证强加密（仅为防止直接读取）。
 - 打包目录时，始终包含目录自身（即相对路径以目录名开头）。
 - 目录路径末尾的 `/` 不会影响打包行为（会被自动规范化）。
+- 打包生成的 `.fgwsz` 文件会被自动设置为只读权限。
 
 使用示例
 --------
@@ -131,6 +132,8 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
         2. 对每个文件，生成随机密钥（1~255）。
         3. 按规范写入：密钥 → 混淆后的路径长度 → 混淆后的路径 → 混淆后的内容长度 → 混淆后的内容。
 
+    注意：打包成功后，输出文件会被设置为只读权限（所有用户只读），防止意外修改。
+
     :param input_paths: 命令行输入的路径列表（文件和/或目录）
     :param output_package: 输出的包文件路径
     """
@@ -215,6 +218,12 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
 
     print(f"打包完成，输出文件: {output_package}")
     print(f"共打包 {len(items_to_pack)} 个文件。")
+
+    # ----- 设置包文件为只读（防止意外修改） -----
+    try:
+        Path(output_package).chmod(0o444)
+    except Exception as e:
+        print(f"警告: 设置只读权限失败: {e}")
 
 
 # -------------------------- 解包功能 --------------------------
