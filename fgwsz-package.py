@@ -136,6 +136,7 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
     注意：
         - 如果输出包文件已存在，会提示用户确认是否覆盖。
         - 打包成功后，输出文件会被设置为只读权限。
+        - 打包文件/目录，严格模式：重复输入或直接文件重名则报错。
 
     :param input_paths: 命令行输入的路径列表（文件和/或目录）
     :param output_package: 输出的包文件路径
@@ -158,39 +159,68 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
         except Exception:
             pass  # 如果无法修改权限，继续尝试（可能仍会失败，但不影响后续尝试）
 
-    # 开始计时
-    start_time = time.perf_counter()
+    # ----- 输入路径去重（按绝对路径） -----
+    unique_inputs = {}
+    for raw in input_paths:
+        p = pathlib.Path(raw)
+        if not p.exists():
+            print(f"错误: 路径不存在: {raw}")
+            sys.exit(1)
+        abs_p = p.resolve()
+        if abs_p in unique_inputs:
+            print(f"错误: 输入路径重复: {raw}")
+            sys.exit(1)
+        unique_inputs[abs_p] = p
 
+    # ----- 分离直接文件和目录 -----
+    direct_files = []
+    dirs = []
+    for p in unique_inputs.values():
+        # 跳过符号链接（文件或目录）
+        if p.is_symlink():
+            print(f"警告: 跳过符号链接文件: {p}")
+            continue
+        if p.is_file():
+            direct_files.append(p)
+        else:
+            dirs.append(p)
+
+    # ----- 检测直接文件重名（仅文件名） -----
+    name_map = {}
+    for f in direct_files:
+        fname = f.name
+        name_map.setdefault(fname, []).append(f)
+    for fname, files in name_map.items():
+        if len(files) > 1:
+            print(f"错误: 直接指定的文件重名 '{fname}':")
+            for i, f in enumerate(files, 1):
+                print(f"  {i}. {f}")
+            sys.exit(1)
+
+    # ----- 收集所有待打包条目（不做分组，因为已保证唯一性） -----
     items_to_pack = []  # 存放 (relative_path_str, absolute_file_path)
 
     # ----- 遍历输入路径，收集所有待打包文件 -----
-    for raw_path in input_paths:
-        p = pathlib.Path(raw_path)
-        if not p.exists():
-            print(f"警告: 路径不存在，已跳过: {raw_path}")
-            continue
+    # 遍历目录
+    for d in dirs:
+        # 目录处理：打包目录自身（包含目录名）
+        # 使用 os.walk 遍历，默认不跟随符号链接
+        for root, _, files in os.walk(d):
+            root_path = pathlib.Path(root)
+            for fname in files:
+                file_path = root_path / fname
+                # 跳过符号链接文件
+                if file_path.is_symlink():
+                    continue
+                # 相对路径以目录名开头
+                rel = file_path.relative_to(d.parent)
+                rel_str = normalize_path_for_package(str(rel))
+                items_to_pack.append((rel_str, file_path))
 
-        if p.is_file():
-            # 如果是符号链接指向的文件，跳过
-            if p.is_symlink():
-                print(f"警告: 跳过符号链接文件: {raw_path}")
-                continue
-
-            # 直接输入的文件：仅使用文件名（不含目录路径）
-            items_to_pack.append((p.name, p))
-        else:
-            # 目录处理：打包目录自身（包含目录名）
-            # 使用 os.walk 遍历，默认不跟随符号链接
-            for root, dirs, files in os.walk(p):
-                root_path = pathlib.Path(root)
-                for file in files:
-                    file_path = root_path / file
-                    # 跳过符号链接文件
-                    if file_path.is_symlink():
-                        continue
-                    # 相对路径以目录名开头
-                    rel = file_path.relative_to(p.parent)
-                    items_to_pack.append((normalize_path_for_package(str(rel)), file_path))
+    # 直接文件
+    for f in direct_files:
+        # 直接输入的文件：仅使用文件名（不含目录路径）
+        items_to_pack.append((f.name, f))
 
     if not items_to_pack:
         print("没有找到任何文件，打包终止。")
@@ -198,6 +228,9 @@ def pack_files(input_paths: List[str], output_package: str) -> None:
 
     # 按相对路径排序，使包内容有序（便于阅读和比对）
     items_to_pack.sort(key=lambda x: x[0])
+
+    # ----- 开始计时（所有检查通过后） -----
+    start_time = time.perf_counter()
 
     # ----- 开始写入包文件 -----
     with open(output_package, 'wb') as f_out:
